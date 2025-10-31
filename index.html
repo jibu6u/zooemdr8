@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EMDR 3D Globe — WebXR Demo (Quest 2 / Desktop)</title>
+  <style>
+    html, body { margin:0; padding:0; background:#000; color:#eee; font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; height:100%; overflow:hidden; }
+    #ui { position: fixed; top: 12px; left: 12px; z-index: 5; background: rgba(0,0,0,0.55); backdrop-filter: blur(4px); border:1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 12px; max-width: 480px; line-height: 1.2; }
+    #ui h1 { font-size: 14px; margin: 0 0 6px; font-weight: 700; color:#fff; }
+    #ui h2 { font-size: 12px; margin: 10px 0 6px; font-weight: 700; color:#fff; opacity:0.9; }
+    #ui .row { display:flex; align-items:center; gap:8px; margin:6px 0; }
+    #ui label { width: 170px; font-size: 12px; color:#ddd; }
+    #ui input[type="range"] { flex:1; }
+    #ui input[type="color"] { width: 48px; height: 24px; padding: 0; border: none; }
+    #ui select, #ui button { background:#111; color:#eee; border-radius:8px; border:1px solid #333; padding:6px 8px; }
+    #ui button { cursor:pointer; }
+    #ui button:hover { background:#1b1b1b; }
+    #hint { position: fixed; bottom: 10px; left: 12px; color:#aaa; font-size: 12px; }
+    #fileStatus, #tickStatus, #vid360Status, #vid2dStatus { font-size: 11px; color:#aaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 400px; }
+  </style>
+</head>
+<body>
+
+<div id="ui">
+  <h1>EMDR 3D Globe — Demo</h1>
+  <div class="row"><label>색상(Color)</label><input id="color" type="color" value="#ffffff" /></div>
+  <div class="row"><label>크기(Size, m)</label><input id="size" type="range" min="0.005" max="0.30" step="0.005" value="0.06" /></div>
+  <div class="row"><label>속도(Speed)</label><input id="speed" type="range" min="0.1" max="3.0" step="0.1" value="1.0" /></div>
+  <div class="row"><label>머무름(Dwell s)</label><input id="dwell" type="range" min="0" max="2.0" step="0.05" value="0.40" /></div>
+  <div class="row"><label>기본거리(Base m)</label><input id="base" type="range" min="0.5" max="3.5" step="0.1" value="1.8" /></div>
+  <div class="row"><label>범위 X (m)</label><input id="ampx" type="range" min="0.01" max="1.5" step="0.01" value="0.60" /></div>
+  <div class="row"><label>범위 Y (m)</label><input id="ampy" type="range" min="0.01" max="1.2" step="0.01" value="0.35" /></div>
+  <div class="row"><label>범위 Z (m)</label><input id="ampz" type="range" min="0.01" max="1.5" step="0.01" value="0.45" /></div>
+  <div class="row"><label>랜덤 이동</label><input id="randomize" type="checkbox" checked /></div>
+  <div class="row"><label>이동 모드</label>
+    <select id="moveMode">
+      <option value="random">랜덤</option>
+      <option value="presetAB">프리셋 A×N → B 루프</option>
+      <option value="mobiusA">프리셋 A (모비우스 좌회전)</option>
+      <option value="mobiusB">프리셋 B (모비우스 우회전)</option>
+      <option value="hvLoop">프리셋 HV (좌→우→위→아래→좌 루프)</option>
+      <option value="topLeftSet">프리셋 TL 세트 (왼위→아래→오른위→왼쪽→북쪽끝)</option>
+    </select>
+  </div>
+  <div class="row">
+    <label>A 반복 횟수 (≥3)</label>
+    <input id="repeatA" type="range" min="3" max="20" step="1" value="3" />
+    <span id="repeatAText" style="font-size:12px; color:#ccc; width:28px; text-align:right;">3</span>
+  </div>
+  <div class="row" style="justify-content:space-between; gap:6px;">
+    <button id="pick">새 타깃/리셋</button>
+    <button id="centerMe">내 앞에 맞추기</button>
+  </div>
+
+  <hr style="border-color:#222;">
+  <h2>배경 오디오(루프)</h2>
+  <div class="row"><label>배경 오디오</label><input id="audioFile" type="file" accept="audio/*" /></div>
+  <div class="row"><label>배경 볼륨</label><input id="bgVol" type="range" min="0" max="1" step="0.01" value="1" /></div>
+  <div id="fileStatus">오디오 미선택</div>
+
+  <hr style="border-color:#222;">
+  <h2>틱 사운드(멈춤 순간 짧게 재생)</h2>
+  <div class="row">
+    <label>프리셋 선택</label>
+    <select id="tickPreset">
+      <option value="none">— 프리셋 없음 (업로드 사용) —</option>
+      <option value="beep">1. beep (sine)</option>
+      <option value="click">2. click (short transient)</option>
+      <option value="bell">3. bell (short tone)</option>
+      <option value="pop">4. pop (low thud)</option>
+      <option value="noise_hi">5. noise burst (hi)</option>
+      <option value="noise_low">6. noise burst (low)</option>
+      <option value="wood">7. woodblock-like</option>
+    </select>
+    <button id="testPreset" title="선택한 프리셋 미리듣기">미리듣기</button>
+  </div>
+  <div class="row"><label>틱 사운드 파일</label><input id="tickFile" type="file" accept="audio/*" /></div>
+  <div class="row"><label>틱 볼륨</label><input id="tickVol" type="range" min="0" max="1" step="0.01" value="0.8" /></div>
+  <div id="tickStatus">프리셋 또는 업로드로 선택하세요</div>
+
+  <hr style="border-color:#222;">
+  <h2>360° VR 배경 비디오 (Equirectangular)</h2>
+  <div class="row"><label>360 비디오</label><input id="vid360" type="file" accept="video/*" /></div>
+  <div class="row" style="justify-content:space-between; gap:6px;">
+    <button id="play360">재생/일시정지</button>
+    <button id="clear360">배경 비우기</button>
+  </div>
+  <div class="row"><label>360 볼륨</label><input id="vol360" type="range" min="0" max="1" step="0.01" value="0.8" /></div>
+  <div id="vid360Status">360 비디오 미선택</div>
+
+  <hr style="border-color:#222;">
+  <h2>2D 비디오 스크린(월드 공간)</h2>
+  <div class="row"><label>2D 비디오</label><input id="vid2d" type="file" accept="video/*" /></div>
+  <div class="row" style="justify-content:space-between; gap:6px;">
+    <button id="play2d">재생/일시정지</button>
+    <button id="hide2d">표시/숨김</button>
+  </div>
+  <div class="row"><label>2D 볼륨</label><input id="vol2d" type="range" min="0" max="1" step="0.01" value="0.8" /></div>
+  <div class="row"><label>스크린 거리(m)</label><input id="screenDist" type="range" min="0.8" max="3.0" step="0.1" value="1.6" /></div>
+  <div class="row"><label>스크린 폭(m)</label><input id="screenWidth" type="range" min="0.8" max="4.0" step="0.1" value="2.4" /></div>
+  <div id="vid2dStatus">2D 비디오 미선택</div>
+</div>
+<div id="hint">Tip: Quest 2에서는 VR 버튼을 눌러 헤드셋에서 직접 감상하세요. (첫 사용자 입력 후 오디오/비디오 활성화)</div>
+
+<script type="module">
+  import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.module.js';
+  import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.152.2/examples/jsm/webxr/VRButton.js';
+
+  // ---------- Renderer / Scene / Camera ----------
+  const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
+  document.body.appendChild(VRButton.createButton(renderer));
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x000000);
+
+  const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.05, 100);
+  camera.position.set(0, 1.6, 0.0); // eye height
+
+  // ---------- Lights ----------
+  const amb = new THREE.AmbientLight(0xffffff, 0.35); scene.add(amb);
+  const key = new THREE.PointLight(0xffffff, 1.0, 0, 2); key.position.set(2, 2, 1); scene.add(key);
+
+  // ---------- Globe ----------
+  const geo = new THREE.SphereGeometry(0.03, 32, 32);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1.5, roughness:0.2, metalness:0.0 });
+  const sphere = new THREE.Mesh(geo, mat); scene.add(sphere);
+
+  // ---------- Params ----------
+  const params = {
+    color: '#ffffff',
+    sphereScale: 0.06,
+    moveSpeed: 1.0,
+    dwell: 0.40,
+    base: 1.8,
+    ampx: 0.60,
+    ampy: 0.35,
+    ampz: 0.45,
+    randomize: true,
+    moveMode: 'random', // 'random' | 'presetAB' | 'mobiusA' | 'mobiusB' | 'hvLoop' | 'topLeftSet'
+    presetRepeatA: 3,
+  };
+
+  // ---------- Helpers ----------
+  let currentTarget = new THREE.Vector3();
+  const tmpPos = new THREE.Vector3();
+  const tmpDir = new THREE.Vector3();
+  const worldUp = new THREE.Vector3(0,1,0);
+  let waitingAtTarget = false;
+  let turnReadyAt = 0; // ms timestamp
+  const arrivalThreshSq = 0.02 * 0.02; // ~2cm
+
+  function computeCenter(out){
+    if (renderer.xr.isPresenting){
+      const xrCam = renderer.xr.getCamera(camera);
+      xrCam.getWorldPosition(tmpPos);
+      xrCam.getWorldDirection(tmpDir); // forward
+      out.copy(tmpPos).add(tmpDir.multiplyScalar(params.base));
+    } else {
+      out.set(0, 1.6, 0).add(new THREE.Vector3(0,0,-params.base));
+    }
+  }
+  function computeBasis(){
+    const center = new THREE.Vector3(); computeCenter(center);
+    const fwd = new THREE.Vector3();
+    const xrCam = renderer.xr.isPresenting ? renderer.xr.getCamera(camera) : camera;
+    xrCam.getWorldDirection(fwd).normalize();
+    const right = new THREE.Vector3().crossVectors(fwd, worldUp).normalize();
+    const up = new THREE.Vector3().crossVectors(right, fwd).normalize();
+    return { center, fwd, right, up };
+  }
+  function makeRelPoint(basis, ox=0, oy=0, oz=0){
+    const {center, fwd, right, up} = basis;
+    return new THREE.Vector3().copy(center)
+      .add(right.clone().multiplyScalar(ox))
+      .add(up.clone().multiplyScalar(oy))
+      .add(fwd.clone().multiplyScalar(oz));
+  }
+
+  // ---------- Target picking ----------
+  function pickNewTarget(init=false){
+    const center = new THREE.Vector3(); computeCenter(center);
+    const offset = new THREE.Vector3(
+      THREE.MathUtils.randFloatSpread(params.ampx*2),
+      THREE.MathUtils.randFloatSpread(params.ampy*2),
+      THREE.MathUtils.randFloatSpread(params.ampz*2)
+    );
+    currentTarget.copy(center).add(offset);
+    if (init) sphere.position.copy(currentTarget);
+  }
+
+  // ---------- Preset path state ----------
+  let presetPhase = 'A';
+  let aRemain = params.presetRepeatA;
+  let bRemain = 1;
+  let pathPoints = [];
+  let pathIdx = 0;
+
+  // Möbius-like figure-8 in X-Z (depth emphasized)
+  function buildMobiusPath(basis, hand='A'){
+    const xAmp = Math.max(0.05, params.ampx);
+    const zAmp = Math.max(0.05, params.ampz) * 0.85;
+    const N = 8; const pts = [];
+    for(let i=0;i<=N;i++){
+      const t = (hand==='A' ? i : (N - i)) * (2*Math.PI/N);
+      const x = xAmp * Math.sin(t);
+      const z = zAmp * Math.sin(2*t) * 0.5;
+      pts.push(makeRelPoint(basis, x, 0, z));
+    }
+    return pts;
+  }
+  // Horizontal→Vertical loop (Left→Right→Top→Bottom→Left)
+  function buildHVLoop(basis){
+    const x = Math.max(0.05, params.ampx); const y = Math.max(0.05, params.ampy);
+    const leftC = makeRelPoint(basis, -x, 0, 0);
+    const rightC = makeRelPoint(basis, x, 0, 0);
+    const topC = makeRelPoint(basis, 0, y, 0);
+    const bottomC = makeRelPoint(basis, 0, -y, 0);
+    return [leftC, rightC, topC, bottomC, leftC];
+  }
+  // Top-Left set (TopLeft → BottomCenter → TopRight → LeftCenter → TopLeft)
+  function buildTopLeftSet(basis){
+    const x = Math.max(0.05, params.ampx); const y = Math.max(0.05, params.ampy);
+    const topLeft = makeRelPoint(basis, -x, y, 0);
+    const bottomCenter = makeRelPoint(basis, 0, -y, 0);
+    const topRight = makeRelPoint(basis, x, y, 0);
+    const leftCenter = makeRelPoint(basis, -x, 0, 0);
+    return [topLeft, bottomCenter, topRight, leftCenter, topLeft];
+  }
+  // Original A/B diagonal patterns
+  function buildPatternA(basis){
+    const x = Math.max(0.05, params.ampx); const z = Math.max(0.05, params.ampz);
+    const startBack = makeRelPoint(basis, 0, 0, +z);
+    const frontNear = makeRelPoint(basis, 0, 0, -z);
+    const leftBack  = makeRelPoint(basis, -x, 0, +z);
+    const rightBack = makeRelPoint(basis, +x, 0, +z);
+    return [startBack, frontNear, leftBack, rightBack, startBack];
+  }
+  function buildPatternB(basis){
+    const x = Math.max(0.05, params.ampx); const z = Math.max(0.05, params.ampz);
+    const startBack = makeRelPoint(basis, 0, 0, +z);
+    const frontNear = makeRelPoint(basis, 0, 0, -z);
+    const rightBack = makeRelPoint(basis, +x, 0, +z);
+    const leftBack  = makeRelPoint(basis, -x, 0, +z);
+    return [startBack, frontNear, rightBack, leftBack, startBack];
+  }
+  function chooseNextPattern(basis){
+    if (presetPhase === 'A'){
+      if (aRemain > 0){ aRemain--; if (aRemain === 0){ presetPhase = 'B'; bRemain = 1; } return buildPatternA(basis); }
+      presetPhase = 'B'; bRemain = 1; return buildPatternB(basis);
+    } else {
+      if (bRemain > 0){ bRemain--; if (bRemain === 0){ presetPhase = 'A'; aRemain = Math.max(3, params.presetRepeatA); } return buildPatternB(basis); }
+      presetPhase = 'A'; aRemain = Math.max(3, params.presetRepeatA); return buildPatternA(basis);
+    }
+  }
+
+  function buildNextPath(placeSphere=false){
+    const basis = computeBasis();
+    if (params.moveMode === 'presetAB') pathPoints = chooseNextPattern(basis);
+    else if (params.moveMode === 'mobiusA' || params.moveMode === 'mobiusB') pathPoints = buildMobiusPath(basis, params.moveMode === 'mobiusA' ? 'A' : 'B');
+    else if (params.moveMode === 'hvLoop') pathPoints = buildHVLoop(basis);
+    else if (params.moveMode === 'topLeftSet') pathPoints = buildTopLeftSet(basis);
+    else { const center = new THREE.Vector3(); computeCenter(center); pathPoints = [center]; }
+    pathIdx = 0; currentTarget.copy(pathPoints[0]); if (placeSphere) sphere.position.copy(currentTarget);
+  }
+  function resetPreset(placeSphere=true){ presetPhase = 'A'; aRemain = Math.max(3, params.presetRepeatA); bRemain = 1; buildNextPath(placeSphere); }
+  function resetMotion(placeSphere=true){
+    if (params.moveMode === 'presetAB'){
+      resetPreset(placeSphere);
+    } else if (params.moveMode === 'mobiusA' || params.moveMode === 'mobiusB'){
+      const basis = computeBasis();
+      pathPoints = buildMobiusPath(basis, params.moveMode==='mobiusA' ? 'A' : 'B');
+      pathIdx = 0;
+      currentTarget.copy(pathPoints[0]);
+      if (placeSphere) sphere.position.copy(currentTarget);
+    } else if (params.moveMode === 'hvLoop'){
+      const basis = computeBasis();
+      pathPoints = buildHVLoop(basis);
+      pathIdx = 0; currentTarget.copy(pathPoints[0]); if (placeSphere) sphere.position.copy(currentTarget);
+    } else if (params.moveMode === 'topLeftSet'){
+      const basis = computeBasis();
+      pathPoints = buildTopLeftSet(basis);
+      pathIdx = 0; currentTarget.copy(pathPoints[0]); if (placeSphere) sphere.position.copy(currentTarget);
+    } else if (params.moveMode === 'complex3D9'){
+      const basis = computeBasis();
+      pathPoints = buildComplex3D9(basis);
+      pathIdx = 0; currentTarget.copy(pathPoints[0]); if (placeSphere) sphere.position.copy(currentTarget);
+    } else {
+      pickNewTarget(placeSphere);
+    }
+  }
+  function nextPresetTarget(){ pathIdx++; if (!pathPoints || pathIdx >= pathPoints.length){ buildNextPath(false); pathIdx = 0; } currentTarget.copy(pathPoints[pathIdx]); }
+
+  // Initial placement
+  pickNewTarget(true);
+
+  // ---------- UI Wiring ----------
+  const $ = (sel)=>document.querySelector(sel);
+  const colorEl = $('#color'); const sizeEl = $('#size'); const speedEl = $('#speed'); const dwellEl = $('#dwell');
+  const baseEl  = $('#base'); const ampxEl  = $('#ampx'); const ampyEl  = $('#ampy'); const ampzEl  = $('#ampz');
+  const randEl  = $('#randomize'); const pickBtn = $('#pick'); const centerBtn = $('#centerMe');
+  const moveModeEl = $('#moveMode'); const repeatAEl = $('#repeatA'); const repeatAText = $('#repeatAText');
+
+  function applyAppearance(){
+    const baseRadius = 0.03; // geometry radius in meters
+    const desiredR = Math.max(0.005, Number(params.sphereScale)); // slider is radius in meters
+    const scaleFactor = desiredR / baseRadius; // convert radius->scale
+    sphere.scale.setScalar(scaleFactor);
+    const c = new THREE.Color(params.color);
+    mat.color.set(c);
+    mat.emissive.set(c);
+    mat.emissiveIntensity = 1.4;
+  }
+
+  colorEl.value=params.color; sizeEl.value=params.sphereScale; speedEl.value=params.moveSpeed; dwellEl.value=params.dwell; baseEl.value=params.base; ampxEl.value=params.ampx; ampyEl.value=params.ampy; ampzEl.value=params.ampz; randEl.checked=params.randomize; moveModeEl.value=params.moveMode; repeatAEl.value=params.presetRepeatA; repeatAText.textContent=String(params.presetRepeatA); applyAppearance();
+
+  colorEl.addEventListener('input', e=>{ params.color=e.target.value; applyAppearance(); });
+  sizeEl.addEventListener('input',  e=>{ params.sphereScale=Number(e.target.value); applyAppearance(); });
+  speedEl.addEventListener('input', e=>{ params.moveSpeed=Number(e.target.value); });
+  dwellEl.addEventListener('input', e=>{ params.dwell=Number(e.target.value); });
+  baseEl.addEventListener('input',  e=>{ params.base=Number(e.target.value); if (params.moveMode!=='random') resetMotion(false); });
+  ampxEl.addEventListener('input',  e=>{ params.ampx=Math.max(0.01,Number(e.target.value)); if (params.moveMode!=='random') resetMotion(false); });
+  ampyEl.addEventListener('input',  e=>{ params.ampy=Math.max(0.01,Number(e.target.value)); });
+  ampzEl.addEventListener('input',  e=>{ params.ampz=Math.max(0.01,Number(e.target.value)); if (params.moveMode!=='random') resetMotion(false); });
+  randEl.addEventListener('change', e=>{ params.randomize=e.target.checked; });
+  moveModeEl.addEventListener('change', ()=>{ params.moveMode=moveModeEl.value; resetMotion(true); });
+  repeatAEl.addEventListener('input', ()=>{ const v=Math.max(3,Math.floor(Number(repeatAEl.value))); params.presetRepeatA=v; repeatAText.textContent=String(v); if (presetPhase==='A') aRemain=Math.max(1,v); });
+  pickBtn.addEventListener('click', ()=>{ if (audioCtx.state==='suspended') audioCtx.resume(); resetMotion(true); });
+  centerBtn.addEventListener('click', ()=>{ resetMotion(true); });
+
+  // ---------- Audio: Web Audio (bg loop + tick) ----------
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext; const audioCtx = new AudioContextClass();
+  window.addEventListener('pointerdown', ()=>{ if (audioCtx.state==='suspended') audioCtx.resume(); }, { once:true });
+
+  // Background loop
+  const audioEl = new Audio(); audioEl.loop = true; let bgSourceNode = null; const bgGain = audioCtx.createGain(); bgGain.gain.value=1.0; bgGain.connect(audioCtx.destination);
+  const audioFile = $('#audioFile'); const fileStatus=$('#fileStatus'); const bgVol=$('#bgVol');
+  audioFile.addEventListener('change', ()=>{ const f=audioFile.files && audioFile.files[0]; if(!f){ fileStatus.textContent='오디오 미선택'; return; } const url=URL.createObjectURL(f); audioEl.src=url; if(!bgSourceNode){ bgSourceNode=audioCtx.createMediaElementSource(audioEl); bgSourceNode.connect(bgGain);} audioEl.play().then(()=>{ fileStatus.textContent=`재생 중: ${f.name}`; if(audioCtx.state==='suspended') audioCtx.resume(); }).catch(()=>{ fileStatus.textContent=`로드됨: ${f.name} (사용자 입력 후 재생)`; }); });
+  bgVol.addEventListener('input', e=>{ bgGain.gain.value=Number(e.target.value); });
+
+  // Tick preset/upload
+  const tickGain = audioCtx.createGain(); tickGain.gain.value=0.8; tickGain.connect(audioCtx.destination);
+  let tickBuffer=null; const tickFile=$('#tickFile'); const tickVol=$('#tickVol'); const tickStatus=$('#tickStatus');
+  const tickPresetEl=document.getElementById('tickPreset'); const testPresetBtn=document.getElementById('testPreset');
+  tickFile.addEventListener('change', async ()=>{ const f=tickFile.files && tickFile.files[0]; if(!f){ tickStatus.textContent='틱 소리 미선택'; tickBuffer=null; return; } const arr=await f.arrayBuffer(); try{ tickBuffer=await audioCtx.decodeAudioData(arr); tickStatus.textContent=`틱 로드됨: ${f.name}`; } catch(e){ tickStatus.textContent='디코딩 실패: '+e; tickBuffer=null; } });
+  tickVol.addEventListener('input', e=>{ tickGain.gain.value=Number(e.target.value); });
+  function envGainNode(t,a=0.005,d=0.12){ const g=audioCtx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(1.0,t+a); g.gain.exponentialRampToValueAtTime(0.0001,t+d); return g; }
+  function makeNoiseBuffer(seconds){ const len=Math.max(1,Math.floor(audioCtx.sampleRate*seconds)); const buf=audioCtx.createBuffer(1,len,audioCtx.sampleRate); const data=buf.getChannelData(0); for(let i=0;i<len;i++){ data[i]=Math.random()*2-1; } return buf; }
+  function playPreset(name){ const t=audioCtx.currentTime; switch(name){
+    case 'beep':{ const o=audioCtx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(880,t); const g=envGainNode(t,0.005,0.12); o.connect(g).connect(tickGain); o.start(t); o.stop(t+0.2); } break;
+    case 'click':{ const s=audioCtx.createBufferSource(); s.buffer=makeNoiseBuffer(0.01); const hp=audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1200; const g=envGainNode(t,0.001,0.025); s.connect(hp).connect(g).connect(tickGain); s.start(t); s.stop(t+0.03);} break;
+    case 'bell':{ const g=envGainNode(t,0.005,0.35); const o1=audioCtx.createOscillator(); o1.type='sine'; o1.frequency.setValueAtTime(880,t); const o2=audioCtx.createOscillator(); o2.type='sine'; o2.frequency.setValueAtTime(1320,t); o1.connect(g); o2.connect(g); g.connect(tickGain); o1.start(t); o2.start(t); o1.stop(t+0.45); o2.stop(t+0.45);} break;
+    case 'pop':{ const o=audioCtx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(120,t); const g=envGainNode(t,0.002,0.09); o.connect(g).connect(tickGain); o.start(t); o.stop(t+0.12);} break;
+    case 'noise_hi':{ const s=audioCtx.createBufferSource(); s.buffer=makeNoiseBuffer(0.08); const hp=audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=2500; const g=envGainNode(t,0.003,0.06); s.connect(hp).connect(g).connect(tickGain); s.start(t); s.stop(t+0.09);} break;
+    case 'noise_low':{ const s=audioCtx.createBufferSource(); s.buffer=makeNoiseBuffer(0.10); const lp=audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=600; const g=envGainNode(t,0.003,0.08); s.connect(lp).connect(g).connect(tickGain); s.start(t); s.stop(t+0.12);} break;
+    case 'wood':{ const s=audioCtx.createBufferSource(); s.buffer=makeNoiseBuffer(0.06); const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1600; bp.Q.value=20; const g=envGainNode(t,0.001,0.05); s.connect(bp).connect(g).connect(tickGain); s.start(t); s.stop(t+0.07);} break;
+    default: break; }
+  }
+  function playTurnTick(){ const preset=tickPresetEl.value; if (preset && preset!=='none'){ playPreset(preset); tickStatus.textContent=`프리셋 재생: ${tickPresetEl.options[tickPresetEl.selectedIndex].text}`; } else if (tickBuffer){ const s=audioCtx.createBufferSource(); s.buffer=tickBuffer; s.connect(tickGain); try{s.start(0);}catch{} tickStatus.textContent='업로드 파일 재생'; } else { tickStatus.textContent='프리셋 또는 업로드된 사운드가 없습니다'; } }
+  testPresetBtn.addEventListener('click', ()=>{ if (audioCtx.state==='suspended') audioCtx.resume(); playTurnTick(); });
+
+  // ---------- 360 Video Background ----------
+  const vid360El=document.createElement('video'); vid360El.crossOrigin='anonymous'; vid360El.playsInline=true; vid360El.loop=true; vid360El.muted=false;
+  let vid360Tex=null; let vid360SrcNode=null; const gain360=audioCtx.createGain(); gain360.gain.value=0.8; gain360.connect(audioCtx.destination);
+  const vid360Input=$('#vid360'); const vid360Status=$('#vid360Status'); const play360Btn=$('#play360'); const clear360Btn=$('#clear360'); const vol360=$('#vol360');
+  vid360Input.addEventListener('change', ()=>{ const f=vid360Input.files && vid360Input.files[0]; if(!f){ vid360Status.textContent='360 비디오 미선택'; return; } const url=URL.createObjectURL(f); vid360El.src=url; vid360El.load(); vid360Tex=new THREE.VideoTexture(vid360El); vid360Tex.colorSpace=THREE.SRGBColorSpace; vid360Tex.mapping=THREE.EquirectangularReflectionMapping; vid360Tex.minFilter=THREE.LinearFilter; vid360Tex.magFilter=THREE.LinearFilter; vid360Tex.generateMipmaps=false; scene.background=vid360Tex; if(!vid360SrcNode){ vid360SrcNode=audioCtx.createMediaElementSource(vid360El); vid360SrcNode.connect(gain360);} vid360El.play().then(()=>{ vid360Status.textContent=`360 재생 중: ${f.name}`; if(audioCtx.state==='suspended') audioCtx.resume(); }).catch(()=>{ vid360Status.textContent=`360 로드됨: ${f.name} (재생 버튼을 누르세요)`; }); });
+  play360Btn.addEventListener('click', ()=>{ if(vid360El.paused) vid360El.play(); else vid360El.pause(); });
+  clear360Btn.addEventListener('click', ()=>{ scene.background=new THREE.Color(0x000000); if(vid360Tex){ vid360Tex.dispose(); vid360Tex=null; } try{ vid360El.pause(); }catch{} vid360El.src=''; vid360Status.textContent='배경 비움'; });
+  vol360.addEventListener('input', e=>{ gain360.gain.value=Number(e.target.value); });
+
+  // ---------- 2D Video Screen ----------
+  const screenGroup=new THREE.Group(); scene.add(screenGroup);
+  const screenGeo=new THREE.PlaneGeometry(2.4,1.35,1,1); const screenMat=new THREE.MeshBasicMaterial({ color:0xffffff, side:THREE.DoubleSide }); const screenMesh=new THREE.Mesh(screenGeo,screenMat); screenGroup.add(screenMesh); screenGroup.visible=false;
+  let vid2dEl=document.createElement('video'); vid2dEl.crossOrigin='anonymous'; vid2dEl.playsInline=true; vid2dEl.loop=true; vid2dEl.muted=false;
+  let vid2dTex=null; let vid2dSrcNode=null; const gain2d=audioCtx.createGain(); gain2d.gain.value=0.8; gain2d.connect(audioCtx.destination);
+  const vid2dInput=$('#vid2d'); const vid2dStatus=$('#vid2dStatus'); const play2dBtn=$('#play2d'); const hide2dBtn=$('#hide2d'); const vol2d=$('#vol2d'); const screenDist=$('#screenDist'); const screenWidth=$('#screenWidth');
+  function updateScreenTransform(){ const dist=Number(screenDist.value); const xrCam=renderer.xr.isPresenting?renderer.xr.getCamera(camera):camera; xrCam.getWorldPosition(tmpPos); xrCam.getWorldDirection(tmpDir); screenGroup.position.copy(tmpPos).add(tmpDir.multiplyScalar(dist)); screenGroup.lookAt(tmpPos); }
+  function applyScreenSize(){ const w=Number(screenWidth.value); let aspect=16/9; if(vid2dEl.videoWidth>0) aspect=vid2dEl.videoWidth/Math.max(1,vid2dEl.videoHeight); const h=w/aspect; screenMesh.scale.set(w/2.4, h/1.35, 1); }
+  vid2dInput.addEventListener('change', ()=>{ const f=vid2dInput.files && vid2dInput.files[0]; if(!f){ vid2dStatus.textContent='2D 비디오 미선택'; return; } const url=URL.createObjectURL(f); vid2dEl.src=url; vid2dEl.load(); vid2dEl.onloadedmetadata=()=>{ applyScreenSize(); }; vid2dTex=new THREE.VideoTexture(vid2dEl); vid2dTex.colorSpace=THREE.SRGBColorSpace; vid2dTex.minFilter=THREE.LinearFilter; vid2dTex.magFilter=THREE.LinearFilter; vid2dTex.generateMipmaps=false; screenMat.map=vid2dTex; screenMat.needsUpdate=true; if(!vid2dSrcNode){ vid2dSrcNode=audioCtx.createMediaElementSource(vid2dEl); vid2dSrcNode.connect(gain2d);} screenGroup.visible=true; updateScreenTransform(); vid2dEl.play().then(()=>{ vid2dStatus.textContent=`2D 재생 중: ${f.name}`; if(audioCtx.state==='suspended') audioCtx.resume(); }).catch(()=>{ vid2dStatus.textContent=`2D 로드됨: ${f.name} (재생 버튼을 누르세요)`; }); });
+  play2dBtn.addEventListener('click', ()=>{ if(vid2dEl.paused) vid2dEl.play(); else vid2dEl.pause(); });
+  hide2dBtn.addEventListener('click', ()=>{ screenGroup.visible=!screenGroup.visible; });
+  vol2d.addEventListener('input', e=>{ gain2d.gain.value=Number(e.target.value); });
+  screenDist.addEventListener('input', ()=>{ updateScreenTransform(); });
+  screenWidth.addEventListener('input', ()=>{ applyScreenSize(); });
+
+  // ---------- Animate ----------
+  const clock=new THREE.Clock();
+  renderer.setAnimationLoop(()=>{
+    const dt=clock.getDelta();
+    const followRate=THREE.MathUtils.lerp(2.0,6.0,THREE.MathUtils.clamp(params.moveSpeed,0.1,3.0));
+    sphere.position.lerp(currentTarget, THREE.MathUtils.clamp(dt*followRate,0,1));
+
+    const arrived=sphere.position.distanceToSquared(currentTarget)<arrivalThreshSq; const now=performance.now();
+    if(arrived && !waitingAtTarget){ waitingAtTarget=true; turnReadyAt=now + params.dwell*1000; playTurnTick(); }
+    if(waitingAtTarget && now>=turnReadyAt){ waitingAtTarget=false; if(params.moveMode==='random'){ if(params.randomize) pickNewTarget(false); } else { nextPresetTarget(); } }
+    if(screenGroup.visible) updateScreenTransform();
+    renderer.render(scene,camera);
+  });
+
+  // ---------- Minimal self-tests (console) ----------
+  (function selfTests(){
+    try{
+      console.assert(document.getElementById('moveMode') instanceof HTMLSelectElement, 'moveMode select exists');
+      const basis = computeBasis();
+      // Core builders
+      console.assert(buildPatternA(basis).length===5, 'Pattern A has 5 points');
+      console.assert(buildPatternB(basis).length===5, 'Pattern B has 5 points');
+      console.assert(buildMobiusPath(basis,'A').length>2, 'Mobius A builds');
+      console.assert(buildMobiusPath(basis,'B').length>2, 'Mobius B builds');
+      console.assert(buildHVLoop(basis).length>=5, 'HV loop builds');
+      console.assert(buildTopLeftSet(basis).length>=5, 'TopLeft set builds');
+      // BuildNextPath for each mode
+      const modes=['presetAB','mobiusA','mobiusB','hvLoop','topLeftSet'];
+      for(const m of modes){ params.moveMode=m; buildNextPath(true); console.assert(Array.isArray(pathPoints) && pathPoints.length>0, `buildNextPath ok for ${m}`); }
+      // Size mapping test (radius meters -> scale)
+      params.sphereScale = 0.12; applyAppearance(); const expectedScale = 0.12/0.03; console.assert(Math.abs(sphere.scale.x-expectedScale) < 1e-6, 'Sphere size maps radius→scale');
+      // Reset back to random
+      params.moveMode='random';
+      console.log('[self-tests] passed');
+    }catch(e){ console.warn('Self-tests failed:', e); }
+  })();
+
+  function placeHUDFromCamera(){
+    ensureHUDAnchor();
+    const cam = renderer.xr.isPresenting ? renderer.xr.getCamera(camera) : camera;
+    const camPos = new THREE.Vector3(); cam.getWorldPosition(camPos);
+    const forward = new THREE.Vector3(); cam.getWorldDirection(forward).normalize();
+    const up = new THREE.Vector3(0,1,0);
+    const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+    HUD.basePos = camPos.clone().add(forward.clone().multiplyScalar(HUD.params.dist || 0.9));
+    HUD.frame = { right, up };
+    updateHUDTransform();
+  }
+
+  function hudify(mat, group){
+    mat.depthTest = false;
+    mat.depthWrite = false;
+    mat.transparent = true;
+    mat.opacity = 0.6;
+    mat.blending = THREE.AdditiveBlending;
+    if ('dithering' in mat) mat.dithering = true;
+    group.renderOrder = 9999;
+    return mat;
+  }
+</script>
+</body>
+</html>
